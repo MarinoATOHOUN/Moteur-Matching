@@ -1,0 +1,45 @@
+# Environnements virtuels Python
+venv/
+.env/
+*.pyc
+__pycache__/
+
+# Node.js
+node_modules/
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+pnpm-debug.log
+
+# fichiers sensibles
+.env
+*.env
+
+# fichiers système
+.DS_Store
+Thumbs.db
+
+# fichiers de logs
+*.log
+
+# fichiers de cache
+*.db
+*.bak
+
+# fichiers de test ou coverage
+.coverage
+coverage/
+
+# fichiers générés
+*.tgz
+*.tar.gz
+*.zip
+
+# Pyright, mypy, etc.
+.mypy_cache/
+.pyright/
+
+# VSCode et autres IDE
+.vscode/
+.idea/
+*.code-workspace
