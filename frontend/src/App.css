@@ -188,7 +188,170 @@
   background-color: #666 !important;
 }
 
+/* Styles for Add Profile Form */
+.add-profile-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  align-items: center;
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.add-profile-form h2 {
+  color: #1a6aff;
+  margin-bottom: 0.5rem;
+}
+
+.form-grid-add {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  width: 100%;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.form-field.full-width {
+  grid-column: 1 / -1;
+}
+
+.form-field label {
+  font-size: 0.9em;
+  font-weight: 500;
+  color: #ccc;
+}
+
+.form-field input[type="text"],
+.form-field input[type="number"],
+.form-field select,
+.form-field textarea {
+  width: 100%;
+  padding: 0.8rem;
+  border-radius: 8px;
+  border: 1px solid #555;
+  background-color: #333;
+  color: white;
+  font-size: 1em;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+
+.form-field select {
+  cursor: pointer;
+}
+
+.form-field textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.form-field input:focus,
+.form-field select:focus,
+.form-field textarea:focus {
+  outline: none;
+  border-color: #1a6aff;
+}
+
+.success-message {
+  color: #4caf50;
+  background-color: rgba(76, 175, 80, 0.1);
+  padding: 1rem;
+  border-radius: 8px;
+  border: 1px solid #4caf50;
+  width: 100%;
+}
+
+/* Styles for Explanation Section */
+.explanation-section {
+  margin-top: 1rem;
+  padding: 1rem;
+  background-color: #1a1a1a;
+  border-radius: 8px;
+  border: 1px solid #333;
+}
+
+.explanation-section h4 {
+  margin-top: 0;
+  margin-bottom: 1rem;
+  color: #1a6aff;
+  font-size: 1em;
+}
+
+.scores-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.score-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.75rem;
+  background-color: #242424;
+  border-radius: 6px;
+}
+
+.score-label {
+  font-size: 0.85em;
+  color: #999;
+  margin-bottom: 0.25rem;
+}
+
+.score-value {
+  font-size: 1.5em;
+  font-weight: 700;
+  color: #1a6aff;
+}
+
+.strengths, .weaknesses {
+  margin-top: 1rem;
+}
+
+.strengths h5, .weaknesses h5 {
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+  font-size: 0.95em;
+}
+
+.strengths h5 {
+  color: #4caf50;
+}
+
+.weaknesses h5 {
+  color: #ff9800;
+}
+
+.strengths ul, .weaknesses ul {
+  margin: 0;
+  padding-left: 1.5rem;
+  font-size: 0.9em;
+}
+
+.strengths li {
+  color: #ccc;
+  margin-bottom: 0.25rem;
+}
+
+.weaknesses li {
+  color: #ccc;
+  margin-bottom: 0.25rem;
+}
+
 /* Responsive adjustments */
+@media (max-width: 768px) {
+  .form-grid-add {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 600px) {
   .form-grid {
     grid-template-columns: 1fr;

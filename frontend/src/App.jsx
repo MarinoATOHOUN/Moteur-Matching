@@ -7,13 +7,30 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const [searchType, setSearchType] = useState('simple'); // 'simple' or 'advanced'
+  const [searchType, setSearchType] = useState('simple'); // 'simple', 'advanced', or 'add'
   const [poste, setPoste] = useState('');
   const [competences, setCompetences] = useState('');
   const [experience, setExperience] = useState('');
   const [localisation, setLocalisation] = useState('');
   const [typeDeContrat, setTypeDeContrat] = useState('');
   const [salaire, setSalaire] = useState('');
+
+  // États pour l'ajout de profil
+  const [newProfile, setNewProfile] = useState({
+    exp_years: '',
+    diplomes: '',
+    certifications: '',
+    hard_skills: '',
+    soft_skills: '',
+    langues: '',
+    localisation: '',
+    mobilite: '',
+    disponibilite: '',
+    experiences: '',
+    poste_recherche: ''
+  });
+  const [addProfileSuccess, setAddProfileSuccess] = useState(null);
+  const [addProfileError, setAddProfileError] = useState(null);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -73,7 +90,82 @@ function App() {
     setLocalisation('');
     setTypeDeContrat('');
     setSalaire('');
-  }
+  };
+
+  const handleProfileInputChange = (field, value) => {
+    setNewProfile(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleAddProfile = async (event) => {
+    event.preventDefault();
+    setIsLoading(true);
+    setAddProfileError(null);
+    setAddProfileSuccess(null);
+
+    // Convertir les chaînes en tableaux pour les compétences et langues
+    const profileData = {
+      ...newProfile,
+      exp_years: parseInt(newProfile.exp_years),
+      hard_skills: newProfile.hard_skills.split(',').map(s => s.trim()).filter(s => s),
+      soft_skills: newProfile.soft_skills.split(',').map(s => s.trim()).filter(s => s),
+      langues: newProfile.langues.split(',').map(s => s.trim()).filter(s => s)
+    };
+
+    try {
+      const response = await fetch('http://localhost:8000/add_profile', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(profileData),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Une erreur est survenue.');
+      }
+
+      const data = await response.json();
+      setAddProfileSuccess(`Profil ajouté avec succès ! ID: ${data.profile_id}`);
+      
+      // Réinitialiser le formulaire
+      setNewProfile({
+        exp_years: '',
+        diplomes: '',
+        certifications: '',
+        hard_skills: '',
+        soft_skills: '',
+        langues: '',
+        localisation: '',
+        mobilite: '',
+        disponibilite: '',
+        experiences: '',
+        poste_recherche: ''
+      });
+    } catch (err) {
+      setAddProfileError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleResetNewProfile = () => {
+    setNewProfile({
+      exp_years: '',
+      diplomes: '',
+      certifications: '',
+      hard_skills: '',
+      soft_skills: '',
+      langues: '',
+      localisation: '',
+      mobilite: '',
+      disponibilite: '',
+      experiences: '',
+      poste_recherche: ''
+    });
+    setAddProfileSuccess(null);
+    setAddProfileError(null);
+  };
 
   return (
     <div className="App">
@@ -89,6 +181,9 @@ function App() {
           <button onClick={() => setSearchType('advanced')} className={`search-type-btn ${searchType === 'advanced' ? 'active' : ''}`}>
             Recherche Avancée
           </button>
+          <button onClick={() => setSearchType('add')} className={`search-type-btn ${searchType === 'add' ? 'active' : ''}`}>
+            Ajouter un Profil
+          </button>
         </div>
 
         {searchType === 'simple' ? (
@@ -96,14 +191,14 @@ function App() {
             <textarea
               value={offerText}
               onChange={(e) => setOfferText(e.target.value)}
-              placeholder="Ex: 'Je cherche un développeur Python spécialisé en fintech avec 3 ans d’expérience au Sénégal'"
+              placeholder="Ex: 'Je cherche un développeur Python spécialisé en fintech avec 3 ans d'expérience au Sénégal'"
               rows="5"
             />
             <button type="submit" disabled={isLoading || !offerText.trim()}>
               {isLoading ? 'Recherche en cours...' : 'Trouver les talents'}
             </button>
           </form>
-        ) : (
+        ) : searchType === 'advanced' ? (
           <form onSubmit={handleSubmit} className="advanced-form">
             <div className="form-grid">
               <input type="text" value={poste} onChange={(e) => setPoste(e.target.value)} placeholder="Poste (ex: Développeur Frontend)" />
@@ -117,6 +212,136 @@ function App() {
               <button type="button" onClick={handleResetAdvanced} className="secondary-btn">Réinitialiser</button>
               <button type="submit" disabled={isLoading}>
                 {isLoading ? 'Recherche en cours...' : 'Trouver les talents'}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <form onSubmit={handleAddProfile} className="add-profile-form">
+            <h2>Ajouter un nouveau profil</h2>
+            <div className="form-grid-add">
+              <div className="form-field">
+                <label>Années d'expérience *</label>
+                <input 
+                  type="number" 
+                  value={newProfile.exp_years} 
+                  onChange={(e) => handleProfileInputChange('exp_years', e.target.value)}
+                  placeholder="Ex: 5"
+                  required
+                />
+              </div>
+              <div className="form-field">
+                <label>Diplômes *</label>
+                <input 
+                  type="text" 
+                  value={newProfile.diplomes} 
+                  onChange={(e) => handleProfileInputChange('diplomes', e.target.value)}
+                  placeholder="Ex: Master en Informatique"
+                  required
+                />
+              </div>
+              <div className="form-field">
+                <label>Certifications</label>
+                <input 
+                  type="text" 
+                  value={newProfile.certifications} 
+                  onChange={(e) => handleProfileInputChange('certifications', e.target.value)}
+                  placeholder="Ex: AWS Certified Developer"
+                />
+              </div>
+              <div className="form-field">
+                <label>Compétences techniques * (séparées par des virgules)</label>
+                <input 
+                  type="text" 
+                  value={newProfile.hard_skills} 
+                  onChange={(e) => handleProfileInputChange('hard_skills', e.target.value)}
+                  placeholder="Ex: Python, Docker, AWS, FastAPI"
+                  required
+                />
+              </div>
+              <div className="form-field">
+                <label>Compétences comportementales * (séparées par des virgules)</label>
+                <input 
+                  type="text" 
+                  value={newProfile.soft_skills} 
+                  onChange={(e) => handleProfileInputChange('soft_skills', e.target.value)}
+                  placeholder="Ex: Communication, Travail d'équipe"
+                  required
+                />
+              </div>
+              <div className="form-field">
+                <label>Langues * (séparées par des virgules)</label>
+                <input 
+                  type="text" 
+                  value={newProfile.langues} 
+                  onChange={(e) => handleProfileInputChange('langues', e.target.value)}
+                  placeholder="Ex: Français, Anglais"
+                  required
+                />
+              </div>
+              <div className="form-field">
+                <label>Localisation *</label>
+                <input 
+                  type="text" 
+                  value={newProfile.localisation} 
+                  onChange={(e) => handleProfileInputChange('localisation', e.target.value)}
+                  placeholder="Ex: Paris, France"
+                  required
+                />
+              </div>
+              <div className="form-field">
+                <label>Mobilité *</label>
+                <select 
+                  value={newProfile.mobilite} 
+                  onChange={(e) => handleProfileInputChange('mobilite', e.target.value)}
+                  required
+                >
+                  <option value="">Sélectionner...</option>
+                  <option value="Mobile">Mobile</option>
+                  <option value="Pas mobile">Pas mobile</option>
+                  <option value="Ouvert au télétravail">Ouvert au télétravail</option>
+                </select>
+              </div>
+              <div className="form-field">
+                <label>Disponibilité *</label>
+                <select 
+                  value={newProfile.disponibilite} 
+                  onChange={(e) => handleProfileInputChange('disponibilite', e.target.value)}
+                  required
+                >
+                  <option value="">Sélectionner...</option>
+                  <option value="Immédiate">Immédiate</option>
+                  <option value="Dans 1 mois">Dans 1 mois</option>
+                  <option value="Dans 3 mois">Dans 3 mois</option>
+                </select>
+              </div>
+              <div className="form-field full-width">
+                <label>Expériences professionnelles *</label>
+                <textarea 
+                  value={newProfile.experiences} 
+                  onChange={(e) => handleProfileInputChange('experiences', e.target.value)}
+                  placeholder="Ex: Développeur Full Stack à TechCorp (2 ans), Développeur Backend à WebSolutions (1 an)"
+                  rows="3"
+                  required
+                />
+              </div>
+              <div className="form-field full-width">
+                <label>Poste recherché (optionnel)</label>
+                <input 
+                  type="text" 
+                  value={newProfile.poste_recherche} 
+                  onChange={(e) => handleProfileInputChange('poste_recherche', e.target.value)}
+                  placeholder="Ex: Développeur Full Stack"
+                />
+              </div>
+            </div>
+            
+            {addProfileSuccess && <p className="success-message">{addProfileSuccess}</p>}
+            {addProfileError && <p className="error-message">Erreur : {addProfileError}</p>}
+            
+            <div className="form-actions">
+              <button type="button" onClick={handleResetNewProfile} className="secondary-btn">Réinitialiser</button>
+              <button type="submit" disabled={isLoading}>
+                {isLoading ? 'Ajout en cours...' : 'Ajouter le profil'}
               </button>
             </div>
           </form>
@@ -135,6 +360,41 @@ function App() {
                   <p><strong>Expérience :</strong> {profile.exp_years} ans</p>
                   <p><strong>Localisation :</strong> {profile.localisation}</p>
                   <p><strong>Compétences :</strong> {profile.hard_skills}</p>
+                  
+                  {profile.explanation && (
+                    <div className="explanation-section">
+                      <h4>📊 Analyse du matching</h4>
+                      <div className="scores-grid">
+                        <div className="score-item">
+                          <span className="score-label">Compétences</span>
+                          <span className="score-value">{Math.round(profile.explanation.skills_match_score * 100)}%</span>
+                        </div>
+                        <div className="score-item">
+                          <span className="score-label">Expérience</span>
+                          <span className="score-value">{Math.round(profile.explanation.experience_match_score * 100)}%</span>
+                        </div>
+                      </div>
+                      
+                      <div className="strengths">
+                        <h5>✅ Points forts</h5>
+                        <ul>
+                          {profile.explanation.strengths.map((strength, idx) => (
+                            <li key={idx}>{strength}</li>
+                          ))}
+                        </ul>
+                      </div>
+                      
+                      <div className="weaknesses">
+                        <h5>⚠️ Points à améliorer</h5>
+                        <ul>
+                          {profile.explanation.weaknesses.map((weakness, idx) => (
+                            <li key={idx}>{weakness}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  )}
+                  
                   <details>
                     <summary>Voir le texte complet</summary>
                     <p className="full-text">{profile.full_text}</p>
