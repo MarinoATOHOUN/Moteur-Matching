@@ -59,9 +59,10 @@ function App() {
         return acc;
       }, {});
     }
-
+// http://localhost:8000/search
+// https://374a3cbbda60.ngrok-free.app/search
     try {
-      const response = await fetch('http://localhost:8000/search', {
+      const response = await fetch('https://374a3cbbda60.ngrok-free.app/search', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

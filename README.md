@@ -500,7 +500,7 @@ railway init
 railway up
 ```
 
-### Frontend (Vercel / Netlify)
+### Frontend (Vercel)
 
 **Vercel:**
 ```bash
@@ -508,12 +508,6 @@ cd frontend
 vercel --prod
 ```
 
-**Netlify:**
-```bash
-cd frontend
-npm run build
-netlify deploy --prod --dir=dist
-```
 
 ---
 
@@ -549,7 +543,7 @@ allow_origins=["http://localhost:5173", "https://votre-frontend.vercel.app"]
 
 ## 👥 Contributeurs
 
-- **Développeur Principal** : [Votre Nom]
+- **Développeur Principal** : Marino ATOHOUN
 - **Framework** : FastAPI + React
 - **Modèle IA** : Sentence-BERT (Hugging Face)
 
@@ -565,9 +559,9 @@ Ce projet est sous licence MIT.
 
 Pour toute question ou problème :
 - 📧 Email : support@example.com
-- 🐛 Issues : [GitHub Issues](https://github.com/votre-repo/issues)
-- 📖 Documentation : [Wiki](https://github.com/votre-repo/wiki)
+- 🐛 Issues : [GitHub Issues](https://github.com/MarinoATOHOUN/Moteur-Matching)
+- 📖 Documentation : [Wiki](https://github.com/MarinoATOHOUN/Moteur-Matching/blob/main/README.md)
 
 ---
 
-**Fait avec ❤️ pour révolutionner le recrutement dans le numérique**
+**Test de recrutement**
