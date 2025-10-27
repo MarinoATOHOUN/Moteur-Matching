@@ -60,9 +60,9 @@ function App() {
       }, {});
     }
 // http://localhost:8000/search
-// https://374a3cbbda60.ngrok-free.app/search
+// https://rinogeek-test-r.hf.space/search
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const apiUrl = import.meta.env.VITE_API_URL || 'https://rinogeek-test-r.hf.space';
       const response = await fetch(`${apiUrl}/search`, {
         method: 'POST',
         headers: {
