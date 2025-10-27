@@ -34,20 +34,22 @@ Le processus de matching, au cœur du système, a été conçu pour être à la 
 
 ```mermaid
 graph TD
-    A[1. Requête Utilisateur<br>(Texte libre ou structuré)] --> B{2. Construction de la Query Text};
-    B --> C[3. Vectorisation de l'Offre<br>(Sentence-BERT)];
-    C --> D[4. Recherche K-NN<br>(FAISS IndexFlatIP)];
-    D --> E{5. Scoring & Classement};
-    subgraph "Étape 5 : Scoring & Classement (match_offer_sync)"
+    A["1. Requête Utilisateur<br/>(Texte libre ou structuré)"] --> B["2. Construction de la Query Text"]
+    B --> C["3. Vectorisation de l'Offre<br/>(Sentence-BERT)"]
+    C --> D["4. Recherche K-NN<br/>(FAISS IndexFlatIP)"]
+    D --> E["5. Scoring & Classement"]
+    
+    subgraph Etape5 ["Étape 5 : Scoring & Classement (match_offer_sync)"]
         direction LR
-        E1[Calcul Score Compétences<br><i>(similarité vectorielle)</i>] --> F;
-        E2[Calcul Score Expérience<br><i>(proximité avec l'exigence)</i>] --> F;
-        F[Calcul Score de Base<br><b>(50% Skills + 50% Exp)</b>] --> G;
-        G --> H{Application Bonus/Malus};
-        H --> I[Calcul Score Final];
+        E1["Calcul Score Compétences<br/>(similarité vectorielle)"] --> F["Fusion des scores"]
+        E2["Calcul Score Expérience<br/>(proximité avec l'exigence)"] --> F
+        F["Calcul Score de Base<br/>(50% Skills + 50% Exp)"] --> G["Application Bonus/Malus"]
+        G --> H["Calcul Score Final"]
     end
-    E --> J[6. Génération des Explications];
-    J --> K[7. Shortlist<br>(Top 7 profils)];
+
+    E --> J["6. Génération des Explications"]
+    J --> K["7. Shortlist<br/>(Top 7 profils)"]
+
 ```
 
 1.  **Requête Utilisateur** : L'API reçoit une offre soit en texte libre (`description`), soit via des champs structurés (poste, compétences, etc.).
