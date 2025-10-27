@@ -565,6 +565,28 @@ def match_offer_sync(offer_text: str, top_k: int = 7, with_explanation: bool = T
         except Exception:
             base_score = 0.0
 
+        # --- Malus pour les filtres stricts (remplace le post-filtrage) ---
+        malus = 0.0
+        profile_row = df_profiles.iloc[idx]
+
+        # Malus de localisation
+        if loc_required:
+            profile_location_lower = profile_row['localisation'].lower()
+            if loc_required not in profile_location_lower:
+                malus += 0.15 # Malus important si la localisation ne correspond pas
+
+        # Malus de mobilité
+        if mobil_required_offer and profile_row.get('mobilite') == "Pas mobile":
+            malus += 0.1 # Malus si la mobilité est requise mais que le profil n'est pas mobile
+
+        # Malus de télétravail
+        if telework_allowed_offer and profile_row.get('mobilite') != "Ouvert au télétravail":
+            malus += 0.1 # Malus si le télétravail est mentionné mais que le profil n'est pas ouvert
+
+        # Malus de disponibilité
+        if immediate_required_offer and profile_row.get('disponibilite') != "Immédiate":
+            malus += 0.1 # Malus si la disponibilité immédiate est requise
+
         # Petites primes pour role_match / location_match / nombre de skills matchés
         bonus = 0.0
         if role_match:
@@ -574,7 +596,7 @@ def match_offer_sync(offer_text: str, top_k: int = 7, with_explanation: bool = T
         # bonus croissant mais plafonné pour skills_match_count
         bonus += min(0.03 * skills_match_count, 0.12)
 
-        final_score = min(1.0, base_score + bonus)
+        final_score = max(0.0, min(1.0, base_score + bonus - malus))
 
         candidates.append({
             'profile': ProfileResult(
@@ -594,40 +616,10 @@ def match_offer_sync(offer_text: str, top_k: int = 7, with_explanation: bool = T
 
     logger.info(f"match_offer_sync: {len(candidates)} candidates scored before post-matching filters.")
 
-    # Apply post-matching filters (Suggestion 3)
-    filtered_candidates = []
-    for cand_data in candidates:
-        profile_row = df_profiles.iloc[cand_data['profile'].id - 1] # Assuming IDs are 1-indexed and match df index + 1
-        
-        # Location filter
-        if loc_required:
-            profile_location_lower = profile_row['localisation'].lower()
-            if loc_required not in profile_location_lower:
-                continue # Skip if required location is not in profile's location
-        
-        # Mobility filter
-        if mobil_required_offer and profile_row.get('mobilite') == "Pas mobile":
-            continue # Skip if mobility is required but profile is not mobile
-        
-        if telework_allowed_offer and profile_row.get('mobilite') != "Ouvert au télétravail":
-            # If telework is explicitly mentioned in offer, and profile doesn't allow it, filter
-            continue
+    # La logique de filtrage a été remplacée par un système de malus.
+    # On trie maintenant directement la liste complète des candidats.
+    logger.info(f"match_offer_sync: No hard filtering applied. Sorting all {len(candidates)} candidates by final score.")
 
-        # Availability filter
-        if immediate_required_offer and profile_row.get('disponibilite') != "Immédiate":
-            continue # Skip if immediate availability is required but profile is not
-
-        filtered_candidates.append(cand_data)
-    
-    logger.info(f"match_offer_sync: {len(filtered_candidates)} candidates remaining after post-matching filters.")
-
-    # Sort the filtered candidates by final_score décroissant
-    filtered_candidates.sort(key=lambda c: -c.get('profile').score)
-
-    # Return the top_k from the filtered list
-    return [c['profile'] for c in filtered_candidates[:top_k]]
-
-    # Old sorting logic (replaced by filtering and then sorting by final_score)
     candidates.sort(key=lambda c: -c.get('profile').score)
 
     # Retourner les top_k profils
