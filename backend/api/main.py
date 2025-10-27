@@ -10,6 +10,7 @@ import logging
 import numpy as np
 import re
 from typing import List, Dict, Optional
+from pathlib import Path
 
 # Configuration du logging
 logging.basicConfig(level=logging.INFO)
@@ -31,12 +32,25 @@ async def lifespan(app: FastAPI):
     # Code exécuté au démarrage de l'application
     logger.info("Chargement des modèles et des données...")
     try:
-        df_profiles = pd.read_csv("../profiles.csv")
+        # Résoudre les chemins relatifs par rapport à ce fichier
+        base_dir = Path(__file__).resolve().parent
+        profiles_path = base_dir / "profiles.csv"
+        # Fallback : si le fichier n'existe pas au même niveau, essayer ../profiles.csv (pour endpoint add_profile)
+        if not profiles_path.exists():
+            alt = base_dir.parent / "profiles.csv"
+            if alt.exists():
+                profiles_path = alt
+
+        df_profiles = pd.read_csv(profiles_path)
         ml_models["profiles"] = df_profiles
         
         # Charger la cartographie des métiers du numérique
         try:
-            df_metiers = pd.read_csv("../../cartographie-metiers-numeriques.csv", sep=';')
+            carto_path = base_dir.parent.parent / "cartographie-metiers-numeriques.csv"
+            # si non trouvé, essayer le repo root
+            if not carto_path.exists():
+                carto_path = Path(__file__).resolve().parents[3] / "cartographie-metiers-numeriques.csv"
+            df_metiers = pd.read_csv(carto_path, sep=';')
             ml_models["metiers_digital"] = df_metiers
             logger.info(f"✅ Cartographie des métiers chargée : {len(df_metiers)} métiers.")
         except FileNotFoundError:
@@ -160,15 +174,17 @@ def generate_explanation(offer_text: str, profile_row: pd.Series,
     required_skills = extract_skills_from_text(offer_text)
     profile_skills = normalize_skills(profile_row["hard_skills"])
     
+    # NOTE: Logique de détection des compétences mise en pause.
+    # Si vous souhaitez réactiver, décommentez la section ci-dessous.
     # Analyser les compétences
-    matched_skills = [skill for skill in required_skills if any(ps in skill or skill in ps for ps in profile_skills)]
-    missing_skills = [skill for skill in required_skills if not any(ps in skill or skill in ps for ps in profile_skills)]
+    # matched_skills = [skill for skill in required_skills if any(ps in skill or skill in ps for ps in profile_skills)]
+    # missing_skills = [skill for skill in required_skills if not any(ps in skill or skill in ps for ps in profile_skills)]
     
-    if matched_skills:
-        strengths.append(f"Maîtrise de : {', '.join(matched_skills[:5])}")
+    # if matched_skills:
+    #     strengths.append(f"Maîtrise de : {', '.join(matched_skills[:5])}")
     
-    if missing_skills:
-        weaknesses.append(f"Compétences à développer : {', '.join(missing_skills[:3])}")
+    # if missing_skills:
+    #     weaknesses.append(f"Compétences à développer : {', '.join(missing_skills[:3])}")
     
     # Analyser l'expérience
     exp_years = int(profile_row["exp_years"])
@@ -282,10 +298,88 @@ def match_offer_sync(offer_text: str, top_k: int = 7, with_explanation: bool = T
 
     # Extraire les compétences et l'expérience de l'offre
     required_skills = extract_skills_from_text(offer_text)
+
+    # Heuristiques simples pour détecter des exigences explicites dans l'offre
+    def detect_requirements(text: str):
+        txt = text.lower()
+        # rôle / poste (exemples courants)
+        # Tenter de détecter un intitulé de poste plus précis en utilisant la cartographie des métiers
+        role = None
+        if "metiers_digital" in ml_models and not ml_models["metiers_digital"].empty:
+            try:
+                jobs = ml_models["metiers_digital"]["Poste"].astype(str).str.lower().unique().tolist()
+                for j in jobs:
+                    if j in txt:
+                        role = j
+                        break
+            except Exception:
+                role = None
+
+        # Si la cartographie n'a rien trouvé, fallback sur des mots-clés simples
+        if not role:
+            role_keywords = ['dev', 'développeur', 'developer', 'web', 'frontend', 'backend', 'full stack', 'fullstack', 'data', 'engineer']
+            for r in role_keywords:
+                if r in txt:
+                    role = r
+                    break
+
+        # localisation (heuristique : chercher "à <ville>" ou "@ <ville>")
+        loc = None
+        m = re.search(r"\bà\s+([A-Za-zÀ-ÖØ-öø-ÿ\-']{2,})", text, flags=re.IGNORECASE)
+        if m:
+            loc = m.group(1).strip().lower()
+
+        # diplôme demandé (master, licence, phd, ingénieur...)
+        degree_keywords = ['master', 'licence', 'phd', 'doctorat', 'diplôme', 'ingénieur', "d'ingénieur"]
+        degree = None
+        for d in degree_keywords:
+            if d in txt:
+                degree = d
+                break
+
+        return {
+            'role': role,
+            'location': loc,
+            'degree': degree,
+            'required_skills': required_skills
+        }
+
+    reqs = detect_requirements(offer_text)
+
+    def profile_matches_requirements(row: pd.Series, reqs: dict) -> bool:
+        """Retourne True si le profil satisfait (heuristiquement) les exigences détectées dans l'offre."""
+        txt = str(row.get('full_text', '')).lower()
+        # role: accepter une correspondance si le titre du profil ou le champ 'poste_recherche' contient la valeur
+        if reqs['role']:
+            profile_title = str(row.get('poste_recherche', '')).lower()
+            if reqs['role'] not in txt and reqs['role'] not in profile_title:
+                return False
+        # location
+        if reqs['location']:
+            loc_field = str(row.get('localisation', '')).lower()
+            if reqs['location'] not in loc_field and reqs['location'] not in txt:
+                return False
+        # degree
+        if reqs['degree']:
+            dipl = str(row.get('diplomes', '')).lower()
+            if reqs['degree'] not in dipl and reqs['degree'] not in txt:
+                return False
+        # skills: si l'offre demande des skills explicites, vérifier qu'au moins un est présent
+        if reqs.get('required_skills'):
+            skills_ok = False
+            for s in reqs['required_skills']:
+                if s in txt:
+                    skills_ok = True
+                    break
+            if reqs['required_skills'] and not skills_ok:
+                return False
+
+        return True
+
     
     # Extraire l'expérience requise (recherche de patterns comme "3 ans", "5 années")
     exp_pattern = re.search(r'(\d+)\s*(ans?|années?|years?)', offer_text.lower())
-    required_exp = int(exp_pattern.group(1)) if exp_pattern else 3  # Par défaut 3 ans
+    required_exp = int(exp_pattern.group(1)) if exp_pattern else None  # None si pas précisé
     
     # Encoder l'offre complète pour le matching global
     offer_emb = model.encode([offer_text], convert_to_numpy=True)
@@ -297,57 +391,119 @@ def match_offer_sync(offer_text: str, top_k: int = 7, with_explanation: bool = T
     faiss.normalize_L2(offer_skills_emb)
     
     # Recherche FAISS élargie pour avoir plus de candidats à scorer
-    search_k = min(top_k * 3, len(df_profiles))  # Chercher 3x plus de profils
+    search_k = min(top_k * 5, len(df_profiles))  # Chercher plus large pool (5x top_k)
     distances, indices = index.search(offer_emb, search_k)
-    
-    # Calculer les scores pondérés pour chaque profil
-    weighted_results = []
+
+    # Calculer des attributs de matching pour chaque profil
+    candidates = []
     for i, idx in enumerate(indices[0]):
         row = df_profiles.iloc[idx]
-        
-        # Score de similarité global (base FAISS)
-        global_score = float(distances[0][i])
-        
-        # Score de compétences (similarité cosinus entre compétences)
+
+        # Compter combien des compétences requises apparaissent dans le texte du profil
+        txt = str(row.get('full_text', '')).lower()
+        skills_match_count = 0
+        for s in required_skills:
+            if s and s in txt:
+                skills_match_count += 1
+
+        # role/title match: vérifier titre profil (`poste_recherche`) + texte complet
+        role_match = False
+        if reqs['role']:
+            profile_title = str(row.get('poste_recherche', '')).lower()
+            if reqs['role'] in txt or reqs['role'] in profile_title:
+                role_match = True
+
+        # location match
+        location_match = False
+        if reqs['location']:
+            loc_field = str(row.get('localisation', '')).lower()
+            if reqs['location'] in loc_field or reqs['location'] in txt:
+                location_match = True
+
+        # expérience
+        profile_exp = int(row.get('exp_years', 0))
+
+        # Score compétences (pour information / fallback)
         if skills_embeddings is not None:
-            profile_skills_emb = skills_embeddings[idx].reshape(1, -1)
-            skills_similarity = np.dot(offer_skills_emb, profile_skills_emb.T)[0][0]
-            skills_score = max(0, min(1, skills_similarity))  # Normaliser entre 0 et 1
+            try:
+                profile_skills_emb = skills_embeddings[idx].reshape(1, -1)
+                skills_similarity = np.dot(offer_skills_emb, profile_skills_emb.T)[0][0]
+                skills_score = max(0, min(1, skills_similarity))
+            except Exception:
+                skills_score = 0.0
         else:
-            skills_score = global_score  # Fallback
-        
-        # Score d'expérience (basé sur la proximité avec l'expérience requise)
-        profile_exp = int(row["exp_years"])
-        exp_diff = abs(profile_exp - required_exp)
-        # Score décroissant avec la différence (max 1 si égal, diminue avec la différence)
-        exp_score = max(0, 1 - (exp_diff / 10))  # Pénalité de 0.1 par année de différence
-        
-        # Score pondéré final : 50% compétences + 50% expérience
-        weighted_score = calculate_weighted_score(skills_score, exp_score, 0.5, 0.5)
-        
-        # Générer l'explication
+            skills_score = 0.0
+
+        # Calculer un score d'expérience (toujours, utilisé pour le score final)
+        if required_exp is not None:
+            if profile_exp >= required_exp:
+                # L'expérience est suffisante ou supérieure, le score est élevé
+                # Bonus pour l'expérience supplémentaire, plafonné pour ne pas surpondérer
+                exp_score = min(1.0, 0.8 + (profile_exp - required_exp) * 0.05)
+            else:
+                # L'expérience est inférieure, le score est proportionnel
+                if required_exp > 0:
+                    exp_score = max(0, (profile_exp / required_exp) * 0.7)
+                else:
+                    exp_score = 0
+        else:
+            # Pas d'exigence, on normalise sur une échelle de 20 ans
+            exp_score = min(1.0, profile_exp / 20)
+
+        # Générer l'explication (optionnel)
         explanation = None
         if with_explanation:
             explanation = generate_explanation(offer_text, row, skills_score, exp_score)
-        
-        weighted_results.append({
+
+        # Pondération fixe 50% compétences / 50% expérience, comme demandé
+        skills_weight = 0.5
+        exp_weight = 0.5
+
+        # Calculer un score de pertinence combiné (compétences + expérience)
+        try:
+            base_score = calculate_weighted_score(skills_score, exp_score, skills_weight=skills_weight, exp_weight=exp_weight)
+        except Exception:
+            base_score = 0.0
+
+        # Petites primes pour role_match / location_match / nombre de skills matchés
+        bonus = 0.0
+        if role_match:
+            bonus += 0.08
+        if location_match:
+            bonus += 0.04
+        # bonus croissant mais plafonné pour skills_match_count
+        bonus += min(0.03 * skills_match_count, 0.12)
+
+        final_score = min(1.0, base_score + bonus)
+
+        candidates.append({
             'profile': ProfileResult(
-                id=int(row["id"]),
-                score=round(weighted_score, 4),
-                exp_years=int(row["exp_years"]),
-                hard_skills=row["hard_skills"],
-                localisation=row["localisation"],
-                full_text=row["full_text"],
+                id=int(row['id']),
+                score=round(float(final_score), 4),
+                exp_years=profile_exp,
+                hard_skills=row['hard_skills'],
+                localisation=row['localisation'],
+                full_text=row['full_text'],
                 explanation=explanation
             ),
-            'weighted_score': weighted_score
+            'skills_match_count': skills_match_count,
+            'role_match': role_match,
+            'location_match': location_match,
+            'profile_exp': profile_exp
         })
-    
-    # Trier par score pondéré décroissant
-    weighted_results.sort(key=lambda x: x['weighted_score'], reverse=True)
-    
-    # Retourner les top_k meilleurs
-    return [r['profile'] for r in weighted_results[:top_k]]
+
+    # Maintenant appliquer l'ordre demandé :
+    # 1) Prioriser profils qui ont au moins une compétence requise (skills_match_count>0), triés par skills_match_count desc
+    # 2) Ensuite, parmi eux, prioriser role_match True
+    # 3) Ensuite, prioriser location_match True
+    # 4) Ensuite trier par expérience décroissante. Si required_exp est présent dans l'offre, on place d'abord les profils
+    #    avec profile_exp >= required_exp (triés desc), puis compléter avec les autres (triés desc)
+
+    # Trier tous les candidats par final_score décroissant (affichage demandé : ordre par pourcentage)
+    candidates.sort(key=lambda c: -c.get('profile').score)
+
+    # Retourner les top_k profils
+    return [c['profile'] for c in candidates[:top_k]]
 
 # --- Endpoints de l'API ---
 @app.get("/")
@@ -368,6 +524,52 @@ async def match_endpoint(request: MatchRequest):
     except Exception as e:
         logger.error(f"Erreur lors du matching pour l'offre '{request.offer_text}': {e}")
         raise HTTPException(status_code=500, detail="Une erreur interne est survenue lors du matching.")
+
+
+@app.post("/match_debug")
+async def match_debug_endpoint(request: MatchRequest):
+    """
+    Endpoint debug: renvoie pour les top_k candidats les métadonnées de tri permettant
+    de comprendre pourquoi un profil a été ordonné de cette manière.
+    """
+    try:
+        # On récupère les mêmes candidats mais sans transformer en ProfileResult
+        if "model" not in ml_models or "faiss_index" not in ml_models or "profiles" not in ml_models:
+            raise HTTPException(status_code=503, detail="Les modèles ne sont pas encore prêts.")
+
+        # Copier une version simplifiée de la logique de match_offer_sync mais en retournant
+        # les métadonnées (skills_match_count, role_match, location_match, profile_exp)
+        model = ml_models["model"]
+        index = ml_models["faiss_index"]
+        df_profiles = ml_models["profiles"]
+
+        offer_text = request.offer_text
+        top_k = request.top_k
+
+        # Reutiliser la fonction de matching existante, mais récupérer les candidats bruts
+        # Pour éviter duplication lourde, appeler match_offer_sync(with_explanation=True) et
+        # reconstruire les métadonnées à partir des explanations et profils retournés.
+        results = match_offer_sync(offer_text, top_k=top_k, with_explanation=True)
+
+        debug_list = []
+        for pr in results:
+            debug_list.append({
+                'profile_id': pr.id,
+                'exp_years': pr.exp_years,
+                'localisation': pr.localisation,
+                'skills': pr.hard_skills,
+                'strengths': pr.explanation.strengths if pr.explanation else [],
+                'weaknesses': pr.explanation.weaknesses if pr.explanation else [],
+                'skills_match_score': pr.explanation.skills_match_score if pr.explanation else None,
+                'experience_match_score': pr.explanation.experience_match_score if pr.explanation else None
+            })
+
+        return {'debug': debug_list}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Erreur match_debug: {e}")
+        raise HTTPException(status_code=500, detail="Erreur interne lors du debug du matching.")
 
 # --- Nouveaux Endpoints pour la Recherche --
 @app.get("/jobs")

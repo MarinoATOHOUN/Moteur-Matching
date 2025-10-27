@@ -62,7 +62,8 @@ function App() {
 // http://localhost:8000/search
 // https://374a3cbbda60.ngrok-free.app/search
     try {
-      const response = await fetch('https://374a3cbbda60.ngrok-free.app/search', {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const response = await fetch(`${apiUrl}/search`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -113,7 +114,8 @@ function App() {
     };
 
     try {
-      const response = await fetch('http://localhost:8000/add_profile', {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const response = await fetch(`${apiUrl}/add_profile`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -385,6 +387,11 @@ function App() {
                         </ul>
                       </div>
                       
+                      {/*
+                        Section "Points à améliorer" mise en pause.
+                        Pour réactiver, décommentez le bloc ci-dessous.
+                      */}
+                      {/*
                       <div className="weaknesses">
                         <h5>⚠️ Points à améliorer</h5>
                         <ul>
@@ -393,6 +400,7 @@ function App() {
                           ))}
                         </ul>
                       </div>
+                      */}
                     </div>
                   )}
                   

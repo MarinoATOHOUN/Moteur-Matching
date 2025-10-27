@@ -43,3 +43,6 @@ coverage/
 .vscode/
 .idea/
 *.code-workspace
+
+# Git
+.git/
