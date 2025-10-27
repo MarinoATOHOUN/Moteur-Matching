@@ -33,6 +33,7 @@ async def lifespan(app: FastAPI):
     logger.info("Chargement des modèles et des données...")
     try:
         # Résoudre les chemins relatifs par rapport à ce fichier
+        logger.info("Étape 1 : Résolution des chemins de fichiers...")
         base_dir = Path(__file__).resolve().parent
         profiles_path = base_dir / "profiles.csv"
         # Fallback : si le fichier n'existe pas au même niveau, essayer ../profiles.csv (pour endpoint add_profile)
@@ -40,16 +41,17 @@ async def lifespan(app: FastAPI):
             alt = base_dir.parent / "profiles.csv"
             if alt.exists():
                 profiles_path = alt
+        logger.info(f"Chemin des profils : {profiles_path}")
 
+        logger.info("Étape 2 : Chargement du DataFrame des profils...")
         df_profiles = pd.read_csv(profiles_path)
         ml_models["profiles"] = df_profiles
+        logger.info(f"{len(df_profiles)} profils chargés.")
         
         # Charger la cartographie des métiers du numérique
         try:
-            carto_path = base_dir.parent.parent / "cartographie-metiers-numeriques.csv"
-            # si non trouvé, essayer le repo root
-            if not carto_path.exists():
-                carto_path = Path(__file__).resolve().parents[3] / "cartographie-metiers-numeriques.csv"
+            logger.info("Étape 3 : Chargement de la cartographie des métiers...")
+            carto_path = base_dir.parent / "data" / "cartographie-metiers-numeriques.csv"
             df_metiers = pd.read_csv(carto_path, sep=';')
             ml_models["metiers_digital"] = df_metiers
             logger.info(f"✅ Cartographie des métiers chargée : {len(df_metiers)} métiers.")
@@ -57,27 +59,35 @@ async def lifespan(app: FastAPI):
             logger.warning("⚠️ Fichier cartographie-metiers-numeriques.csv non trouvé. Fonctionnalité métiers désactivée.")
             ml_models["metiers_digital"] = pd.DataFrame()
         
+        logger.info("Étape 4 : Chargement du modèle SentenceTransformer...")
         model = SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
         ml_models["model"] = model
+        logger.info("Modèle SentenceTransformer chargé.")
         
+        logger.info("Étape 5 : Encodage des profils (full_text)...")
         profile_embeddings = model.encode(df_profiles["full_text"].tolist(), convert_to_numpy=True)
         d = profile_embeddings.shape[1]
+        logger.info("Encodage des profils terminé.")
         
+        logger.info("Étape 6 : Normalisation et création de l'index FAISS...")
         faiss.normalize_L2(profile_embeddings)
         
         index = faiss.IndexFlatIP(d)
         index.add(profile_embeddings)
         ml_models["faiss_index"] = index
+        logger.info("Index FAISS créé.")
         
         # Créer des embeddings séparés pour les compétences et l'expérience
+        logger.info("Étape 7 : Encodage des compétences (hard_skills)...")
         skills_embeddings = model.encode(df_profiles["hard_skills"].tolist(), convert_to_numpy=True)
         faiss.normalize_L2(skills_embeddings)
         ml_models["skills_embeddings"] = skills_embeddings
+        logger.info("Encodage des compétences terminé.")
         
         logger.info(f"✅ Index FAISS construit avec {index.ntotal} profils.")
         logger.info("Application démarrée avec succès.")
     except Exception as e:
-        logger.error(f"Erreur lors du chargement des modèles : {e}")
+        logger.error(f"Erreur lors du chargement des modèles : {e}", exc_info=True)
         # Vous pourriez vouloir arrêter l'application si les modèles ne se chargent pas
         # raise HTTPException(status_code=500, detail="Impossible de charger les modèles de ML.")
     
