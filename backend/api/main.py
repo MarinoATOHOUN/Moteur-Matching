@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 import logging
 import numpy as np
 import re
+import ast # For safe evaluation of string-represented lists
 from typing import List, Dict, Optional
 from pathlib import Path
 
@@ -180,49 +181,100 @@ def generate_explanation(offer_text: str, profile_row: pd.Series,
     strengths = []
     weaknesses = []
     
-    # Extraire les compétences demandées et celles du profil
+    # Extract required skills from offer_text
     required_skills = extract_skills_from_text(offer_text)
-    profile_skills = normalize_skills(profile_row["hard_skills"])
     
-    # NOTE: Logique de détection des compétences mise en pause.
-    # Si vous souhaitez réactiver, décommentez la section ci-dessous.
-    # Analyser les compétences
-    # matched_skills = [skill for skill in required_skills if any(ps in skill or skill in ps for ps in profile_skills)]
-    # missing_skills = [skill for skill in required_skills if not any(ps in skill or skill in ps for ps in profile_skills)]
-    
-    # if matched_skills:
-    #     strengths.append(f"Maîtrise de : {', '.join(matched_skills[:5])}")
-    
-    # if missing_skills:
-    #     weaknesses.append(f"Compétences à développer : {', '.join(missing_skills[:3])}")
+    # Safely parse profile hard skills (which might be a string representation of a list)
+    profile_hard_skills_str = profile_row["hard_skills"]
+    try:
+        profile_skills_list = ast.literal_eval(profile_hard_skills_str)
+        if not isinstance(profile_skills_list, list):
+            profile_skills_list = [s.strip() for s in profile_hard_skills_str.split(',')]
+    except (ValueError, SyntaxError):
+        profile_skills_list = [s.strip() for s in profile_hard_skills_str.split(',')]
+
+    # Normalize profile skills for comparison
+    profile_skills_normalized = []
+    for skill_item in profile_skills_list:
+        profile_skills_normalized.extend(normalize_skills(skill_item))
+    profile_skills_normalized = list(set(profile_skills_normalized)) # Remove duplicates
+
+    # Analyze skills
+    matched_skills = []
+    missing_skills = []
+
+    for req_skill in required_skills:
+        found = False
+        for prof_skill in profile_skills_normalized:
+            # Check for exact match or substring match (e.g., 'python' in 'python_django')
+            if req_skill == prof_skill or req_skill in prof_skill or prof_skill in req_skill:
+                matched_skills.append(req_skill)
+                found = True
+                break
+        if not found:
+            missing_skills.append(req_skill)
+
+    if matched_skills:
+        strengths.append(f"Maîtrise de : {', '.join(list(set(matched_skills))[:5])}") # Use set to avoid duplicates
+
+    if missing_skills:
+        weaknesses.append(f"Compétences à développer : {', '.join(list(set(missing_skills))[:3])}")
     
     # Analyser l'expérience
     exp_years = int(profile_row["exp_years"])
-    if exp_years >= 5:
+    if exp_years >= 10: # More specific thresholds for "solid" vs "good"
+        strengths.append(f"Expérience très solide ({exp_years} ans)")
+    elif exp_years >= 5:
         strengths.append(f"Expérience solide ({exp_years} ans)")
     elif exp_years >= 3:
         strengths.append(f"Bonne expérience ({exp_years} ans)")
     else:
         strengths.append(f"Profil junior ({exp_years} ans d'expérience)")
     
-    # Analyser la localisation
-    if "localisation" in offer_text.lower():
+    # Analyze location, mobility, availability based on offer text
+    offer_text_lower = offer_text.lower()
+    profile_location_lower = profile_row['localisation'].lower()
+
+    # Location
+    loc_required_match = re.search(r"(?:à|au|basé à|depuis)\s+([A-Za-zÀ-ÖØ-öø-ÿ\s\-']{2,})", offer_text_lower, flags=re.IGNORECASE)
+    if loc_required_match:
+        loc_required_str = loc_required_match.group(1).strip()
+        if ',' in loc_required_str:
+            loc_required_str = loc_required_str.split(',')[0].strip() # Take first part if comma separated
+        if loc_required_str in profile_location_lower:
+            strengths.append(f"Localisation : {profile_row['localisation']}")
+        else:
+            weaknesses.append(f"Localisation différente de l'offre ({profile_row['localisation']})")
+    elif "localisation" in offer_text_lower or "localisé" in offer_text_lower or "basé" in offer_text_lower:
+        # If offer mentions location generally, and profile has one
         strengths.append(f"Localisation : {profile_row['localisation']}")
+
+    # Mobility
+    if "mobile" in offer_text_lower or "déplacement" in offer_text_lower:
+        if profile_row.get("mobilite") == "Mobile":
+            strengths.append("Ouvert à la mobilité")
+        else:
+            weaknesses.append("Mobilité non compatible avec l'offre")
+    elif "télétravail" in offer_text_lower or "remote" in offer_text_lower:
+        if profile_row.get("mobilite") == "Ouvert au télétravail":
+            strengths.append("Ouvert au télétravail")
+        else:
+            weaknesses.append("Télétravail non compatible avec l'offre")
     
-    # Analyser la mobilité
-    if profile_row.get("mobilite") == "Mobile":
-        strengths.append("Ouvert à la mobilité")
+    # Availability
+    if "immédiatement" in offer_text_lower or "disponible de suite" in offer_text_lower:
+        if profile_row.get("disponibilite") == "Immédiate":
+            strengths.append("Disponibilité immédiate")
+        else:
+            weaknesses.append(f"Disponibilité ({profile_row['disponibilite']}) non immédiate")
     
-    # Analyser la disponibilité
-    if profile_row.get("disponibilite") == "Immédiate":
-        strengths.append("Disponibilité immédiate")
+    # If no specific weaknesses found, but overall score is not perfect, add a general one
+    if not weaknesses and (skills_score < 0.9 or exp_score < 0.9): # Threshold for "very good match"
+        weaknesses.append("Quelques légers écarts de compétences ou d'expérience")
     
-    # Si peu de points forts, ajouter des éléments génériques
-    if len(strengths) < 2:
+    # If few strengths, add a generic one if no specific strengths were found
+    if not strengths:
         strengths.append("Profil correspondant aux critères généraux")
-    
-    if len(weaknesses) == 0:
-        weaknesses.append("Profil très bien adapté à l'offre")
     
     return MatchExplanation(
         strengths=strengths[:5],  # Limiter à 5 points forts
@@ -277,7 +329,7 @@ app.add_middleware(
 
 # --- Modèles Pydantic (pour la validation des requêtes) ---
 class MatchRequest(BaseModel):
-    offer_text: str
+    offer_text: str | None = None # Now optional
     top_k: int = 7
 
 class ProfileResult(BaseModel):
@@ -298,6 +350,7 @@ def match_offer_sync(offer_text: str, top_k: int = 7, with_explanation: bool = T
     """
     Fonction de matching synchrone avec pondération (50% skills + 50% expérience).
     """
+    
     if "model" not in ml_models or "faiss_index" not in ml_models or "profiles" not in ml_models:
         raise HTTPException(status_code=503, detail="Les modèles ne sont pas encore prêts. Veuillez réessayer dans quelques instants.")
 
@@ -305,6 +358,12 @@ def match_offer_sync(offer_text: str, top_k: int = 7, with_explanation: bool = T
     index = ml_models["faiss_index"]
     df_profiles = ml_models["profiles"]
     skills_embeddings = ml_models.get("skills_embeddings")
+    
+    # Get digital job titles for filtering (Suggestion 4)
+    df_metiers = ml_models.get("metiers_digital")
+    digital_job_titles = []
+    if not df_metiers.empty:
+        digital_job_titles = df_metiers["Poste"].astype(str).str.lower().unique().tolist()
 
     # Extraire les compétences et l'expérience de l'offre
     required_skills = extract_skills_from_text(offer_text)
@@ -404,6 +463,29 @@ def match_offer_sync(offer_text: str, top_k: int = 7, with_explanation: bool = T
     search_k = min(top_k * 5, len(df_profiles))  # Chercher plus large pool (5x top_k)
     distances, indices = index.search(offer_emb, search_k)
 
+    logger.info(f"match_offer_sync: Initial FAISS search found {len(indices[0])} candidates.")
+
+    # Extract specific requirements from offer_text for post-filtering (Suggestion 3)
+    offer_text_lower = offer_text.lower()
+    
+    loc_required = None
+    loc_match_patterns = [
+        r"(?:à|au|basé à|depuis)\s+([A-Za-zÀ-ÖØ-öø-ÿ\s\-']{2,})",
+        r"localisé\s+en\s+([A-Za-zÀ-ÖØ-öø-ÿ\s\-']{2,})",
+        r"localisé\s+à\s+([A-Za-zÀ-ÖØ-öø-ÿ\s\-']{2,})"
+    ]
+    for pattern in loc_match_patterns:
+        m = re.search(pattern, offer_text_lower, flags=re.IGNORECASE)
+        if m:
+            loc_required = m.group(1).strip()
+            if ',' in loc_required:
+                loc_required = loc_required.split(',')[0].strip()
+            break
+
+    mobil_required_offer = "mobile" in offer_text_lower or "déplacement" in offer_text_lower
+    telework_allowed_offer = "télétravail" in offer_text_lower or "remote" in offer_text_lower
+    immediate_required_offer = "immédiatement" in offer_text_lower or "disponible de suite" in offer_text_lower
+
     # Calculer des attributs de matching pour chaque profil
     candidates = []
     for i, idx in enumerate(indices[0]):
@@ -414,6 +496,14 @@ def match_offer_sync(offer_text: str, top_k: int = 7, with_explanation: bool = T
         skills_match_count = 0
         for s in required_skills:
             if s and s in txt:
+                skills_match_count += 1
+
+        # --- Digital profession filter (Suggestion 4) ---
+        profile_job_title = str(row.get('poste_recherche', '')).lower()
+        # If the profile's stated job title is not in the digital jobs list, skip this profile.
+        if digital_job_titles and profile_job_title and profile_job_title not in digital_job_titles:
+            continue # Skip this profile, it's not a digital profession
+        elif not digital_job_titles and profile_job_title: # If no digital jobs list, but profile has a job title, try to infer
                 skills_match_count += 1
 
         # role/title match: vérifier titre profil (`poste_recherche`) + texte complet
@@ -502,14 +592,42 @@ def match_offer_sync(offer_text: str, top_k: int = 7, with_explanation: bool = T
             'profile_exp': profile_exp
         })
 
-    # Maintenant appliquer l'ordre demandé :
-    # 1) Prioriser profils qui ont au moins une compétence requise (skills_match_count>0), triés par skills_match_count desc
-    # 2) Ensuite, parmi eux, prioriser role_match True
-    # 3) Ensuite, prioriser location_match True
-    # 4) Ensuite trier par expérience décroissante. Si required_exp est présent dans l'offre, on place d'abord les profils
-    #    avec profile_exp >= required_exp (triés desc), puis compléter avec les autres (triés desc)
+    logger.info(f"match_offer_sync: {len(candidates)} candidates scored before post-matching filters.")
 
-    # Trier tous les candidats par final_score décroissant (affichage demandé : ordre par pourcentage)
+    # Apply post-matching filters (Suggestion 3)
+    filtered_candidates = []
+    for cand_data in candidates:
+        profile_row = df_profiles.iloc[cand_data['profile'].id - 1] # Assuming IDs are 1-indexed and match df index + 1
+        
+        # Location filter
+        if loc_required:
+            profile_location_lower = profile_row['localisation'].lower()
+            if loc_required not in profile_location_lower:
+                continue # Skip if required location is not in profile's location
+        
+        # Mobility filter
+        if mobil_required_offer and profile_row.get('mobilite') == "Pas mobile":
+            continue # Skip if mobility is required but profile is not mobile
+        
+        if telework_allowed_offer and profile_row.get('mobilite') != "Ouvert au télétravail":
+            # If telework is explicitly mentioned in offer, and profile doesn't allow it, filter
+            continue
+
+        # Availability filter
+        if immediate_required_offer and profile_row.get('disponibilite') != "Immédiate":
+            continue # Skip if immediate availability is required but profile is not
+
+        filtered_candidates.append(cand_data)
+    
+    logger.info(f"match_offer_sync: {len(filtered_candidates)} candidates remaining after post-matching filters.")
+
+    # Sort the filtered candidates by final_score décroissant
+    filtered_candidates.sort(key=lambda c: -c.get('profile').score)
+
+    # Return the top_k from the filtered list
+    return [c['profile'] for c in filtered_candidates[:top_k]]
+
+    # Old sorting logic (replaced by filtering and then sorting by final_score)
     candidates.sort(key=lambda c: -c.get('profile').score)
 
     # Retourner les top_k profils
@@ -519,14 +637,41 @@ def match_offer_sync(offer_text: str, top_k: int = 7, with_explanation: bool = T
 @app.get("/")
 def read_root():
     return {"message": "Bienvenue sur l'API de Matching IA"}
-
+    
+# Suggestion 1: Add Support for Structured Offers in JSON
+class MatchRequest(BaseModel):
+    offer_text: str | None = None  # Original field, now optional
+    Poste: str | None = None
+    Compétences_techniques: list[str] | None = None
+    Expérience_requise: str | None = None
+    Localisation: str | None = None
+    Type_de_contrat: str | None = None
+    Salaire: str | None = None
+    top_k: int = 7
+    
 @app.post("/match", response_model=MatchResponse)
 async def match_endpoint(request: MatchRequest):
     """
     Endpoint pour trouver les meilleurs profils correspondant à une offre.
+    Supporte les requêtes en texte libre (offer_text) ou structurées en JSON.
     """
+    query_text = request.offer_text
+    if not query_text: # If offer_text is not provided, construct it from structured fields
+        parts = []
+        if request.Poste: parts.append(f"Poste: {request.Poste}")
+        if request.Compétences_techniques: parts.append(f"Compétences techniques: {', '.join(request.Compétences_techniques)}")
+        if request.Expérience_requise: parts.append(f"Expérience requise: {request.Expérience_requise}")
+        if request.Localisation: parts.append(f"Localisation: {request.Localisation}")
+        if request.Type_de_contrat: parts.append(f"Type de contrat: {request.Type_de_contrat}")
+        if request.Salaire: parts.append(f"Salaire: {request.Salaire}")
+        
+        if not parts:
+            raise HTTPException(status_code=400, detail="Veuillez fournir une description ou au moins un critère de recherche.")
+        
+        query_text = ". ".join(parts)
+
     try:
-        results = match_offer_sync(request.offer_text, request.top_k)
+        results = match_offer_sync(query_text, request.top_k)
         return MatchResponse(results=results)
     except HTTPException as e:
         # Propage l'exception HTTP si les modèles ne sont pas prêts

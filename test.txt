@@ -1,0 +1,22 @@
+curl -X POST https://rinogeek-test-r.hf.space/match \
+  -H "Content-Type: application/json" \
+  -d '{"offer_text": "Besoin d'un Ingénieur DevOps mobile, disponible immédiatement, avec compétences en Docker et Kubernetes, basé à Dakar, Sénégal", "top_k": 5}'
+
+
+
+
+# Test d'ajout de profil
+curl -X POST https://rinogeek-test-r.hf.space/add_profile \
+  -H "Content-Type: application/json" \
+  -d '{
+    "exp_years": 3,
+    "diplomes": "Master Informatique",
+    "certifications": "None",
+    "hard_skills": ["Python", "Django"],
+    "soft_skills": ["Communication"],
+    "langues": ["Français"],
+    "localisation": "Paris",
+    "mobilite": "Mobile",
+    "disponibilite": "Immédiate",
+    "experiences": "Dev chez TechCorp"
+  }'
